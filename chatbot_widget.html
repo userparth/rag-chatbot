@@ -102,16 +102,18 @@
             appendMessage("You", userMessage);
             input.value = "";
 
-            let botMessage = document.createElement("div");
+            const botMessage = document.createElement("div");
             botMessage.innerHTML = `<strong>Bot:</strong> `;
             messages.appendChild(botMessage);
 
-            // ✅ Close any previous stream before starting new one
+            // Ensure previous stream is closed properly
             if (window.currentEventSource) {
                 window.currentEventSource.close();
+                window.currentEventSource = null;
             }
 
-            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}`);
+            // Add a timestamp to force new connection
+            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";

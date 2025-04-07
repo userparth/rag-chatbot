@@ -1,36 +1,27 @@
-import asyncio
-import json
 import os
+import json
+import asyncio
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
+from langchain_core.callbacks import CallbackManager
 from langchain.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
-from langchain_core.callbacks.manager import CallbackManager
+from fastapi import Request
+from pinecone import Pinecone
 
 # Load environment variables
 load_dotenv()
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-INDEX_NAME = "products"
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
-# Initialize vector store from Pinecone index
-vectorstore = PineconeVectorStore.from_existing_index(
-    index_name=INDEX_NAME,
-    embedding=OpenAIEmbeddings(api_key=OPENAI_API_KEY),
-    text_key="text"
-)
-retriever = vectorstore.as_retriever(
-    search_type="similarity",
-    search_kwargs={"k": 3}
-)
-
-# Initialize LLM
-llm = ChatOpenAI(model="gpt-4o", api_key=OPENAI_API_KEY, streaming=True,
-                 callbacks=[])
+# Define embedding model
+embeddings = OpenAIEmbeddings()
 
 # Define prompt template with shopping assistant behavior
 prompt = ChatPromptTemplate.from_messages([
@@ -55,51 +46,97 @@ Format the response with:
 
 Always keep the tone warm, helpful, and respectful.
 """),
-    MessagesPlaceholder("chat_history"),
+    MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}\n\nContext:\n{context}")
 ])
 
-# Create QA chain and retrieval pipeline
-qa_chain = create_stuff_documents_chain(llm, prompt)
-rag_chain = create_retrieval_chain(retriever, qa_chain)
+# Maintain chat history globally
+chat_history = []
 
 
-def chat(query, chat_history=None):
-    if chat_history is None:
-        chat_history = []
-    response = rag_chain.invoke({
+# Sync version for CLI use or testing
+def chat_sync(query: str) -> str:
+    global chat_history
+
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key=OPENAI_API_KEY,
+        temperature=0.7
+    )
+
+    # Load vector store fresh per call
+    vectorstore = PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME,
+        embedding=embeddings,
+        namespace=None,
+        text_key="text"
+    )
+
+    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+
+    qa_chain = create_stuff_documents_chain(llm, prompt)
+    rag_chain = create_retrieval_chain(retriever, qa_chain)
+
+    result = rag_chain.invoke({
         "input": query,
         "chat_history": chat_history
     })
-    return response["answer"], chat_history + [
-        HumanMessage(content=query),
-        SystemMessage(content=response["answer"])
-    ]
+
+    chat_history.append(HumanMessage(content=query))
+    chat_history.append(SystemMessage(content=result["answer"]))
+
+    return result["answer"]
 
 
-def get_streaming_chain():
+# Async streaming version for FastAPI
+async def stream_response(query: str, chat_history: list, request: Request):
     callback = AsyncIteratorCallbackHandler()
     manager = CallbackManager([callback])
 
     llm = ChatOpenAI(
         model="gpt-4o",
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=OPENAI_API_KEY,
         streaming=True,
-        callback_manager=manager
+        callback_manager=manager,
     )
 
-    # Use your existing prompt here (prompt already defined in chatbot.py)
-    qa_chain = create_stuff_documents_chain(llm, prompt)
-    return create_retrieval_chain(retriever, qa_chain), callback
+    try:
+        vectorstore = PineconeVectorStore.from_existing_index(
+            index_name=PINECONE_INDEX_NAME,
+            embedding=embeddings,
+            namespace=None,
+            text_key="text"
+        )
+        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+
+        qa_chain = create_stuff_documents_chain(llm, prompt)
+        rag_chain = create_retrieval_chain(retriever, qa_chain)
+
+        task = asyncio.create_task(rag_chain.ainvoke({
+            "input": query,
+            "chat_history": chat_history
+        }))
+
+        async for token in callback.aiter():
+            if await request.is_disconnected():
+                print("❌ Client disconnected — cancelling stream")
+                task.cancel()
+                return
+            yield f"data: {json.dumps({'token': token})}\n\n"
+
+        await task
+
+    except Exception as e:
+        print("❌ Streaming error:", str(e))
+        yield f"data: {json.dumps({'token': '[Error occurred]'})}\n\n"
+
+    finally:
+        if hasattr(llm, "aclose"):
+            await llm.aclose()
+            print("✅ LLM session closed")
+
+    yield "data: [DONE]\n\n"
 
 
-async def stream_response(query: str, chat_history: list):
-    rag_chain, callback = get_streaming_chain()
-    inputs = {"input": query, "chat_history": chat_history}
-    task = asyncio.create_task(rag_chain.ainvoke(inputs))
-
-    async for token in callback.aiter():
-        yield f"data: {json.dumps({'token': token})}\n\n"
-
-    await task
-    yield f"data: [DONE]\n\n"
+def get_history():
+    return chat_history
