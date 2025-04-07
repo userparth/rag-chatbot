@@ -48,3 +48,5 @@ Thumbs.db
 # Misc
 *.zip
 *.tar.gz
+
+# Servier Command : /Users/parthsharma/PycharmProjects/rag-chatbot/venv/bin/python -m uvicorn api:app --reload

@@ -90,30 +90,53 @@
 
         function appendMessage(sender, text) {
             const message = document.createElement("div");
-            message.textContent = `${sender}: ${text}`;
+            message.innerHTML = `<strong>${sender}:</strong> ${text}`;
             messages.appendChild(message);
             messages.scrollTop = messages.scrollHeight;
         }
 
-        async function sendMessage() {
+        function sendMessage() {
             const userMessage = input.value.trim();
             if (!userMessage) return;
 
             appendMessage("You", userMessage);
             input.value = "";
 
-            try {
-                const res = await fetch("http://127.0.0.1:8000/chat", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ query: userMessage })
-                });
+            let botMessage = document.createElement("div");
+            botMessage.innerHTML = `<strong>Bot:</strong> `;
+            messages.appendChild(botMessage);
 
-                const data = await res.json();
-                appendMessage("Bot", data.answer);
-            } catch (err) {
-                appendMessage("Bot", "Error talking to server");
+            // ✅ Close any previous stream before starting new one
+            if (window.currentEventSource) {
+                window.currentEventSource.close();
             }
+
+            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}`);
+            window.currentEventSource = eventSource;
+
+            let fullResponse = "";
+
+            eventSource.onmessage = function (event) {
+                if (event.data === "[DONE]") {
+                    console.log("✅ Stream ended");
+                    eventSource.close();
+                    return;
+                }
+                try {
+                    const parsed = JSON.parse(event.data);
+                    fullResponse += parsed.token;
+                    botMessage.innerHTML = `<strong>Bot:</strong> ${fullResponse}`;
+                    messages.scrollTop = messages.scrollHeight;
+                } catch (e) {
+                    console.error("Parsing error:", e);
+                }
+            };
+
+            eventSource.onerror = function (err) {
+                console.error("EventSource failed:", err);
+                eventSource.close();
+                botMessage.innerHTML += "<br><em>[Stream Error]</em>";
+            };
         }
     </script>
 </body>
