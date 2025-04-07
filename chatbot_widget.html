@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatbot Widget</title>
+    <style>
+        #chatbot-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #000;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 999px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 999;
+        }
+
+        #chatbot-window {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 350px;
+            height: 500px;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            z-index: 999;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #chatbot-messages {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            font-family: sans-serif;
+            font-size: 14px;
+        }
+
+        #chatbot-input {
+            display: flex;
+            border-top: 1px solid #ccc;
+        }
+
+        #chatbot-input input {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            outline: none;
+            font-size: 14px;
+        }
+
+        #chatbot-input button {
+            background: #000;
+            color: #fff;
+            border: none;
+            padding: 10px 14px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chatbot-button">Chat</div>
+
+    <div id="chatbot-window">
+        <div id="chatbot-messages"></div>
+        <div id="chatbot-input">
+            <input type="text" id="user-input" placeholder="Type your message..." />
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const button = document.getElementById("chatbot-button");
+        const windowBox = document.getElementById("chatbot-window");
+        const messages = document.getElementById("chatbot-messages");
+        const input = document.getElementById("user-input");
+
+        button.onclick = () => {
+            windowBox.style.display = windowBox.style.display === "none" ? "flex" : "none";
+        };
+
+        function appendMessage(sender, text) {
+            const message = document.createElement("div");
+            message.innerHTML = `<strong>${sender}:</strong> ${text}`;
+            messages.appendChild(message);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function sendMessage() {
+            const userMessage = input.value.trim();
+            if (!userMessage) return;
+
+            appendMessage("You", userMessage);
+            input.value = "";
+
+            let botMessage = document.createElement("div");
+            botMessage.innerHTML = `<strong>Bot:</strong> `;
+            messages.appendChild(botMessage);
+
+            // ✅ Close any previous stream before starting new one
+            if (window.currentEventSource) {
+                window.currentEventSource.close();
+            }
+
+            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}`);
+            window.currentEventSource = eventSource;
+
+            let fullResponse = "";
+
+            eventSource.onmessage = function (event) {
+                if (event.data === "[DONE]") {
+                    console.log("✅ Stream ended");
+                    eventSource.close();
+                    return;
+                }
+                try {
+                    const parsed = JSON.parse(event.data);
+                    fullResponse += parsed.token;
+                    botMessage.innerHTML = `<strong>Bot:</strong> ${fullResponse}`;
+                    messages.scrollTop = messages.scrollHeight;
+                } catch (e) {
+                    console.error("Parsing error:", e);
+                }
+            };
+
+            eventSource.onerror = function (err) {
+                console.error("EventSource failed:", err);
+                eventSource.close();
+                botMessage.innerHTML += "<br><em>[Stream Error]</em>";
+            };
+        }
+    </script>
+</body>
+
+</html>
