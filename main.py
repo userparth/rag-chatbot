@@ -1,5 +1,5 @@
 import os
-from chatbot import chat
+from chatbot import chat_sync
 
 # Optional: Run prepare_data.py if data needs to be refreshed
 RUN_PREPARE = False  # Set to True to refresh data from CSV
@@ -20,7 +20,7 @@ def run_cli():
             if not user_input:
                 continue
 
-            response, chat_history = chat(user_input, chat_history)
+            response = chat_sync(user_input)
             print("Bot:", response)
 
             if any(keyword in user_input.lower() for keyword in exit_keywords):

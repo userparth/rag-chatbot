@@ -23,29 +23,54 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 # Define embedding model
 embeddings = OpenAIEmbeddings()
 
+# Define unrelated topics to block
+UNRELATED_TOPICS = [
+    "elon musk", "chatgpt", "news", "nasa", "weather", "india", "prime minister", "salman", "sharukh"
+                                                                                            "modi", "politics", "bjp",
+    "congress", "stock market", "sports", "cricket", "football", "celebrities", "movies"
+]
+
+
+def is_unrelated_query(query: str) -> bool:
+    query = query.lower()
+    return any(topic in query for topic in UNRELATED_TOPICS)
+
+
 # Define prompt template with shopping assistant behavior
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """
-You are a helpful, friendly shopping assistant. Speak in a casual and natural way that matches the user's tone and language.
+    ("system", """You are a helpful, friendly shopping assistant for Beatrrangi — a brand offering handcrafted 
+    jewelry and accessories. Be warm, helpful, and product-focused. Mirror the user's tone and language (Hinglish, Hindi, 
+    or English). 
 
-Your job is to:
-- Help users find beautiful handcrafted jewelry from the catalog
-- Detect the user's tone or language (e.g., Hinglish, Hindi, casual English) and mirror it naturally
-- Use retrieved product info to explain size, color, material, and styling
-- If the product exists, give a direct link to order using the link already included in the retrieved result
+    🎯 Your only job is to assist with product discovery from the Beatrrangi catalog.
 
-Format the response with:
-👉 [Product Title](https://beattrangi.com/products/slug)
+    If the user is inspired by celebrities (e.g., “Disha Patni ki jewelry” or “Rekha wala pendant”), assume they’re describing a **style** and guide them to similar products.
 
-⚠️ Do not ask the user to contact via email or Instagram.
-⚠️ Do not mention 'India made' — all products are Indian by default.
-⚠️ Do not repeat product details that have already been shared earlier in the chat. Only reference them by title.
-⚠️ If a product is not found in the retrieved results, do NOT make up or guess a product. Never suggest or create product names or links that are not part of the results.
-⚠️ Do not use words like 'context' in your replies. The user should feel like you're responding directly, not reading from a technical source.
-✅ If no match is found, politely let the user know and offer to help with other styles, colors, or product types.
+    Only block and politely redirect if the query is **fully unrelated to jewelry or product discovery** — like questions about:
+    - politics, celebrities, entertainment news, gossip
+    - weather, geography, science, history, personal advice, random chit-chat
 
-Always keep the tone warm, helpful, and respectful.
-"""),
+    ❗ In such cases:
+    → DO NOT comment on the topic
+    → DO NOT say things like “Govinda is great” or “I’m not sure”
+    → If the query is completely unrelated, do not comment on it. Instead, **detect the user's language (Hindi, Hinglish, English or any other)** and dynamically respond with a polite redirection, such as:
+        - Hindi: "Main sirf Beatrrangi ke products mein madad karta hoon. Aap kis tarah ka jewelry dekh rahe ho?"
+        - Hinglish: "Beatrrangi ke products mein hi help kar sakta hoon. Koi specific pendant ya earring dekhna hai?"
+        - English: "I'm here to help with Beatrrangi products only. Let me know what kind of jewelry, color, or style you’d like to explore."
+        - Any Other: Response according to the user's language
+    But DO NOT use these exact lines word for word — generate a natural, polite redirect that fits the user's tone.
+
+    Format real product suggestions like this:
+    👉 [Product Title](https://beattrangi.com/products/slug)
+
+    ⚠️ Do not ask for email or Instagram.
+    ⚠️ Do not say “India made” — all products are Indian by default.
+    ⚠️ Do not repeat product info already shared. Just reference the product title.
+    ⚠️ Do not hallucinate product names or links — only use retrieved results.
+    ⚠️ Do not say “context” or technical phrases.
+
+    ✅ If no match is found, politely let the user know and offer help with other styles, colors, or categories — using a friendly and natural tone.
+    """),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}\n\nContext:\n{context}")
 ])
@@ -58,13 +83,15 @@ chat_history = []
 def chat_sync(query: str) -> str:
     global chat_history
 
+    if is_unrelated_query(query):
+        return "I'm here to help with Beatrrangi products only. Feel free to ask about jewelry, colors, styles, or accessories you'd like to explore!"
+
     llm = ChatOpenAI(
         model="gpt-4o",
         api_key=OPENAI_API_KEY,
         temperature=0.7
     )
 
-    # Load vector store fresh per call
     vectorstore = PineconeVectorStore.from_existing_index(
         index_name=PINECONE_INDEX_NAME,
         embedding=embeddings,
@@ -73,7 +100,6 @@ def chat_sync(query: str) -> str:
     )
 
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-
     qa_chain = create_stuff_documents_chain(llm, prompt)
     rag_chain = create_retrieval_chain(retriever, qa_chain)
 
@@ -90,6 +116,11 @@ def chat_sync(query: str) -> str:
 
 # Async streaming version for FastAPI
 async def stream_response(query: str, chat_history: list, request: Request):
+    if is_unrelated_query(query):
+        yield f"data: {json.dumps({'token': 'I can help you with Beatrrangi products only. Please ask about styles, colors, or jewelry you’re interested in!'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
     callback = AsyncIteratorCallbackHandler()
     manager = CallbackManager([callback])
 
@@ -138,5 +169,28 @@ async def stream_response(query: str, chat_history: list, request: Request):
     yield "data: [DONE]\n\n"
 
 
+# Expose chat history for reuse
 def get_history():
     return chat_history
+
+
+def generate_product_cards_html(products: list[dict]) -> str:
+    if not products:
+        return ""
+
+    cards_html = ""
+    for p in products:
+        if not all(k in p for k in ["title", "description", "slug"]):
+            continue
+        cards_html += f"""
+        <div class="product-card" onclick="window.open('https://beattrangi.com/products/{p['slug']}', '_blank')">
+            <h4>{p['title']}</h4>
+            <p>{p['description']}</p>
+        </div>
+        """
+
+    return f"""
+<div class="product-scroll-container">
+{cards_html}
+</div>
+"""
