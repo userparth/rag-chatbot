@@ -224,7 +224,7 @@
                 window.currentEventSource = null;
             }
 
-            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
+            const eventSource = new EventSource(`http://localhost:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";
