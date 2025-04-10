@@ -77,7 +77,7 @@ The system prompt ensures:
 - Mirrors user's language and tone
 - Responds clearly with formatting:
   ```
-  👉 [Blue Floral Pendant](https://beattrangi.com/products/blue-floral-pendant)
+  👉 [Blue Floral Pendant](https://example.com/products/blue-floral-pendant)
   ```
 
 ---
