@@ -206,6 +206,15 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
+        function renderProductCards(cardsHtml) {
+            const container = document.createElement("div");
+            container.className = "product-scroll-container";
+            container.innerHTML = cardsHtml;
+            messages.appendChild(container);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+
         function sendMessage() {
             const userMessage = input.value.trim();
             if (!userMessage) return;
@@ -224,7 +233,7 @@
                 window.currentEventSource = null;
             }
 
-            const eventSource = new EventSource(`http://localhost:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
+            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";
@@ -237,8 +246,13 @@
                 }
                 try {
                     const parsed = JSON.parse(event.data);
-                    fullResponse += parsed.token;
-                    botMessage.innerText = fullResponse;
+                    if (parsed.type === "product_cards_html") {
+                        botMessage.remove();
+                        renderProductCards(parsed.html);
+                    } else {
+                        fullResponse += parsed.token;
+                        botMessage.innerText = fullResponse;
+                    }
                     messages.scrollTop = messages.scrollHeight;
                 } catch (e) {
                     console.error("Parsing error:", e);
