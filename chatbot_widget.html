@@ -120,58 +120,42 @@
 
         .product-scroll-container {
             display: flex;
+            flex-direction: row;
             overflow-x: auto;
-            gap: 20px;
-            padding: 16px 0;
+            gap: 12px;
+            padding: 12px;
             scroll-snap-type: x mandatory;
-        }
-
-        .product-scroll-container::-webkit-scrollbar {
-            height: 8px;
-        }
-
-        .product-scroll-container::-webkit-scrollbar-thumb {
-            background-color: #ccc;
-            border-radius: 4px;
+            margin-top: 12px;
         }
 
         .product-card {
             flex: 0 0 auto;
-            width: 240px;
-            min-width: 240px;
-            height: 164px;
-            background: #FFFFFF;
-            border: 1px solid #D9D9D9;
+            width: 200px;
+            background: #fff;
+            border: 1px solid #ccc;
             border-radius: 8px;
-            padding: 16px;
-            box-sizing: border-box;
-            cursor: pointer;
+            padding: 10px;
             scroll-snap-align: start;
-            transition: box-shadow 0.2s ease;
-        }
-
-        .product-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
         .product-card h4 {
-            margin: 0 0 8px;
-            font-size: 16px;
-            font-weight: 600;
-            color: #111;
+            font-size: 14px;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .product-card p {
-            margin: 0;
-            font-size: 14px;
-            color: #555;
+        .product-card a {
+            font-size: 12px;
+            display: inline-block;
+            margin-top: 4px;
         }
     </style>
 </head>
 
 <body>
     <div id="chatbot-button">Chat</div>
-
     <div id="chatbot-window">
         <div id="chatbot-header">
             Ask about our products
@@ -183,7 +167,6 @@
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
-
     <script>
         const button = document.getElementById("chatbot-button");
         const windowBox = document.getElementById("chatbot-window");
@@ -193,12 +176,12 @@
         button.onclick = toggleChat;
 
         function toggleChat() {
-            const isOpen = windowBox.style.display === "flex";
-            windowBox.style.display = isOpen ? "none" : "flex";
-            if (!isOpen) setTimeout(() => input.focus(), 200);
+            windowBox.style.display = windowBox.style.display === "flex" ? "none" : "flex";
+            if (windowBox.style.display === "flex") setTimeout(() => input.focus(), 200);
         }
 
         function appendMessage(sender, text) {
+            if (!text.trim()) return;
             const message = document.createElement("div");
             message.className = `message ${sender}`;
             message.innerText = text;
@@ -206,19 +189,20 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        function renderProductCards(cardsHtml) {
-            const container = document.createElement("div");
-            container.className = "product-scroll-container";
-            container.innerHTML = cardsHtml;
-            messages.appendChild(container);
-            messages.scrollTop = messages.scrollHeight;
+        function createProductCard(title, url, description) {
+            const card = document.createElement("div");
+            card.className = "product-card";
+            card.innerHTML = `
+        <h4>${title}</h4>
+        <p style="font-size: 12px;">${description}</p>
+        <a href="${url}" target="_blank">View Product</a>
+      `;
+            return card;
         }
-
 
         function sendMessage() {
             const userMessage = input.value.trim();
             if (!userMessage) return;
-
             appendMessage("user", userMessage);
             input.value = "";
 
@@ -228,10 +212,7 @@
             messages.appendChild(botMessage);
             messages.scrollTop = messages.scrollHeight;
 
-            if (window.currentEventSource) {
-                window.currentEventSource.close();
-                window.currentEventSource = null;
-            }
+            if (window.currentEventSource) window.currentEventSource.close();
 
             const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
@@ -241,19 +222,44 @@
             eventSource.onmessage = function (event) {
                 if (event.data === "[DONE]") {
                     eventSource.close();
-                    botMessage.classList.remove("typing");
+                    botMessage.remove();
+
+                    const renderedSlugs = new Set();
+                    const regex = /(👉\s*)?\[([^\]]+)\]\((https:\/\/beattrangi\.com\/products\/[-a-z0-9]+)\)(?::|\s*-)?\s*([^\n]*)/gi;
+
+                    const parts = fullResponse.split(regex);
+                    for (let i = 0; i < parts.length; i++) {
+                        if (i % 5 === 0) {
+                            appendMessage("bot", parts[i]);
+                        } else if ((i % 5 === 2) && parts[i + 1] && parts[i + 2]) {
+                            const title = parts[i + 0].trim();
+                            const url = parts[i + 1].trim();
+                            const desc = parts[i + 2].trim();
+                            if (!renderedSlugs.has(url)) {
+                                const container = document.createElement("div");
+                                container.className = "product-scroll-container";
+                                container.appendChild(createProductCard(title, url, desc));
+                                messages.appendChild(container);
+                                renderedSlugs.add(url);
+                            }
+                            i += 2;
+                        }
+                    }
                     return;
                 }
                 try {
                     const parsed = JSON.parse(event.data);
                     if (parsed.type === "product_cards_html") {
                         botMessage.remove();
-                        renderProductCards(parsed.html);
+                        const container = document.createElement("div");
+                        container.className = "product-scroll-container";
+                        container.innerHTML = parsed.html;
+                        messages.appendChild(container);
+                        messages.scrollTop = messages.scrollHeight;
                     } else {
                         fullResponse += parsed.token;
                         botMessage.innerText = fullResponse;
                     }
-                    messages.scrollTop = messages.scrollHeight;
                 } catch (e) {
                     console.error("Parsing error:", e);
                 }
