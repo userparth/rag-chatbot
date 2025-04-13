@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import traceback
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
@@ -8,6 +10,7 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.runnables import RunnableMap
 from langchain.chains import create_retrieval_chain
 from langchain_core.callbacks import CallbackManager
 from langchain.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
@@ -79,41 +82,6 @@ prompt = ChatPromptTemplate.from_messages([
 chat_history = []
 
 
-# Sync version for CLI use or testing
-def chat_sync(query: str) -> str:
-    global chat_history
-
-    if is_unrelated_query(query):
-        return "I'm here to help with Beatrrangi products only. Feel free to ask about jewelry, colors, styles, or accessories you'd like to explore!"
-
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        api_key=OPENAI_API_KEY,
-        temperature=0.7
-    )
-
-    vectorstore = PineconeVectorStore.from_existing_index(
-        index_name=PINECONE_INDEX_NAME,
-        embedding=embeddings,
-        namespace=None,
-        text_key="text"
-    )
-
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-    qa_chain = create_stuff_documents_chain(llm, prompt)
-    rag_chain = create_retrieval_chain(retriever, qa_chain)
-
-    result = rag_chain.invoke({
-        "input": query,
-        "chat_history": chat_history
-    })
-
-    chat_history.append(HumanMessage(content=query))
-    chat_history.append(SystemMessage(content=result["answer"]))
-
-    return result["answer"]
-
-
 # Async streaming version for FastAPI
 async def stream_response(query: str, chat_history: list, request: Request):
     if is_unrelated_query(query):
@@ -122,13 +90,11 @@ async def stream_response(query: str, chat_history: list, request: Request):
         return
 
     callback = AsyncIteratorCallbackHandler()
-    manager = CallbackManager([callback])
-
     llm = ChatOpenAI(
         model="gpt-4o",
         api_key=OPENAI_API_KEY,
         streaming=True,
-        callback_manager=manager,
+        callbacks=[callback],
     )
 
     try:
@@ -141,12 +107,28 @@ async def stream_response(query: str, chat_history: list, request: Request):
         retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
 
         qa_chain = create_stuff_documents_chain(llm, prompt)
-        rag_chain = create_retrieval_chain(retriever, qa_chain)
+        inner_chain = create_retrieval_chain(retriever, qa_chain)
+
+        # Wrap to emit both answer and context
+        rag_chain = RunnableMap({
+            "context": lambda x: retriever.ainvoke(x["input"]),
+            "answer": inner_chain
+        })
 
         task = asyncio.create_task(rag_chain.ainvoke({
             "input": query,
             "chat_history": chat_history
         }))
+
+        await asyncio.sleep(0.5)
+
+        if task.done():
+            response = task.result()
+            documents = response.get("context", [])
+            if documents:
+                cards_html = generate_product_cards_html(documents)
+                print("📦 Retrieved documents:", len(documents))
+                yield f"data: {json.dumps({'type': 'product_cards_html', 'html': cards_html})}\n\n"
 
         async for token in callback.aiter():
             if await request.is_disconnected():
@@ -159,6 +141,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
 
     except Exception as e:
         print("❌ Streaming error:", str(e))
+        traceback.print_exc()  # 🔍 will show full error in terminal
         yield f"data: {json.dumps({'token': '[Error occurred]'})}\n\n"
 
     finally:
@@ -167,6 +150,39 @@ async def stream_response(query: str, chat_history: list, request: Request):
             print("✅ LLM session closed")
 
     yield "data: [DONE]\n\n"
+
+
+# Sync version for CLI use
+def chat_sync(query: str, chat_history: list):
+    if is_unrelated_query(query):
+        return "I can help you with Beatrrangi products only. Please ask about styles, colors, or jewelry you’re interested in!"
+
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key=OPENAI_API_KEY,
+    )
+
+    vectorstore = PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME,
+        embedding=embeddings,
+        namespace=None,
+        text_key="text"
+    )
+    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+
+    qa_chain = create_stuff_documents_chain(llm, prompt)
+    inner_chain = create_retrieval_chain(retriever, qa_chain)
+    rag_chain = RunnableMap({
+        "context": retriever,
+        "answer": inner_chain
+    })
+
+    response = rag_chain.invoke({
+        "input": query,
+        "chat_history": chat_history
+    })
+
+    return response.get("answer", "")
 
 
 # Expose chat history for reuse
