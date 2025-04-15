@@ -172,8 +172,6 @@
         const windowBox = document.getElementById("chatbot-window");
         const messages = document.getElementById("chatbot-messages");
         const input = document.getElementById("user-input");
-        let fullResponse = "";
-        let productCardHTML = null;
 
         button.onclick = toggleChat;
 
@@ -226,67 +224,42 @@
                     eventSource.close();
                     botMessage.remove();
 
-                    // const renderedSlugs = new Set();
-                    // const regex = /(👉\s*)?\[([^\]]+)\]\((https:\/\/beattrangi\.com\/products\/[-a-z0-9]+)\)(?::|\s*-)?\s*([^\n]*)/gi;
+                    const renderedSlugs = new Set();
+                    const regex = /(👉\s*)?\[([^\]]+)\]\((https:\/\/beattrangi\.com\/products\/[-a-z0-9]+)\)(?::|\s*-)?\s*([^\n]*)/gi;
 
-                    // const parts = fullResponse.split(regex);
-                    // for (let i = 0; i < parts.length; i++) {
-                    //     if (i % 5 === 0) {
-                    //         appendMessage("bot", parts[i]);
-                    //     } else if ((i % 5 === 2) && parts[i + 1] && parts[i + 2]) {
-                    //         const title = parts[i + 0].trim();
-                    //         const url = parts[i + 1].trim();
-                    //         const desc = parts[i + 2].trim();
-                    //         if (!renderedSlugs.has(url)) {
-                    //             const container = document.createElement("div");
-                    //             container.className = "product-scroll-container";
-                    //             container.appendChild(createProductCard(title, url, desc));
-                    //             messages.appendChild(container);
-                    //             renderedSlugs.add(url);
-                    //         }
-                    //         i += 2;
-                    //     }
-                    // }
-
-
-                    // Show full final bot message
-                    // 1️⃣ Show full bot reply
-                    if (fullResponse.trim()) {
-                        appendMessage("bot", fullResponse);
-                    }
-
-                    // Append product cards afterward
-                    if (productCardHTML) {
-                        const container = document.createElement("div");
-                        container.className = "product-scroll-container";
-                        container.innerHTML = productCardHTML;
-                        messages.appendChild(container);
-                        messages.scrollTop = messages.scrollHeight;
+                    const parts = fullResponse.split(regex);
+                    for (let i = 0; i < parts.length; i++) {
+                        if (i % 5 === 0) {
+                            appendMessage("bot", parts[i]);
+                        } else if ((i % 5 === 2) && parts[i + 1] && parts[i + 2]) {
+                            const title = parts[i + 0].trim();
+                            const url = parts[i + 1].trim();
+                            const desc = parts[i + 2].trim();
+                            if (!renderedSlugs.has(url)) {
+                                const container = document.createElement("div");
+                                container.className = "product-scroll-container";
+                                container.appendChild(createProductCard(title, url, desc));
+                                messages.appendChild(container);
+                                renderedSlugs.add(url);
+                            }
+                            i += 2;
+                        }
                     }
                     return;
                 }
                 try {
                     const parsed = JSON.parse(event.data);
-                    // if (parsed.type === "product_cards_html") {
-                    //     botMessage.remove();
-                    //     const container = document.createElement("div");
-                    //     container.className = "product-scroll-container";
-                    //     container.innerHTML = parsed.html;
-                    //     messages.appendChild(container);
-                    //     messages.scrollTop = messages.scrollHeight;
-                    // } else {
-                    //     fullResponse += parsed.token;
-                    //     botMessage.innerText = fullResponse;
-                    // }
-
-                    console.log("📦 Received product cards:", parsed.html);
-
                     if (parsed.type === "product_cards_html") {
-                        productCardHTML = parsed.html;  // Save to render later
+                        botMessage.remove();
+                        const container = document.createElement("div");
+                        container.className = "product-scroll-container";
+                        container.innerHTML = parsed.html;
+                        messages.appendChild(container);
+                        messages.scrollTop = messages.scrollHeight;
+                    } else {
+                        fullResponse += parsed.token;
+                        botMessage.innerText = fullResponse;
                     }
-                    fullResponse += parsed.token;
-                    botMessage.innerText = fullResponse;
-
                 } catch (e) {
                     console.error("Parsing error:", e);
                 }
