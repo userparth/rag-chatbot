@@ -95,7 +95,7 @@ The system prompt ensures:
 ## 🚀 Deploy
 You can deploy this chatbot backend to:
 - Render / Fly.io / Railway (for API)
-- Embed the widget into Shopify theme code
+- Embed the widget into Shopify theme
 
 Need help? Open an issue or ask! 😄
 
