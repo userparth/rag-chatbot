@@ -1,3 +1,7 @@
+# chatbot.py
+# This script implements a Retrieval-Augmented Generation (RAG) chatbot using LangChain, OpenAI, and Pinecone.
+# It provides both a streaming and sync response system for handling user queries about Beatrrangi products.
+
 import os
 import json
 import asyncio
@@ -15,30 +19,36 @@ from langchain.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
 from fastapi import Request
 from pinecone import Pinecone
 
+# Load environment variables from a .env file
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
+# Set up the OpenAI embeddings model for vector search
 # Define embedding model
 embeddings = OpenAIEmbeddings()
 
+# Predefined list of topics considered unrelated to product discovery
 # Define unrelated topics to block
 UNRELATED_TOPICS = [
     "elon musk", "chatgpt", "news", "nasa", "weather", "india", "prime minister", "salman", "sharukh",
     "modi", "politics", "bjp", "congress", "stock market", "sports", "cricket", "football", "celebrities", "movies"
 ]
 
+# Set to track and prevent duplicate product suggestions
 # Memory to prevent showing the same slug again
 shown_slugs = set()
 
 
+# Check if a query contains unrelated topics
 def is_unrelated_query(query: str) -> bool:
     query = query.lower()
     return any(topic in query for topic in UNRELATED_TOPICS)
 
 
+# Prompt template defining chatbot behavior and tone
 # Prompt with rich instructions
 prompt = ChatPromptTemplate.from_messages([
     ("system", """You are a helpful, friendly shopping assistant for Beatrrangi — a brand offering handcrafted 
@@ -79,10 +89,12 @@ prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}\n\nContext:\n{context}")
 ])
 
+# Global variable to store chat history
 # Global history
 chat_history = []
 
 
+# Stream GPT responses via SSE for real-time chat UI
 # Streamed version for FastAPI (SSE)
 async def stream_response(query: str, chat_history: list, request: Request):
     if is_unrelated_query(query):
@@ -96,6 +108,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
         yield "data: [DONE]\n\n"
         return
 
+    # Initialize ChatOpenAI with streaming and callback support
     callback = AsyncIteratorCallbackHandler()
     llm = ChatOpenAI(
         model="gpt-4o",
@@ -105,6 +118,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
     )
 
     try:
+        # Create retriever from Pinecone index using OpenAI embeddings
         # Initialize retriever
         vectorstore = PineconeVectorStore.from_existing_index(
             index_name=PINECONE_INDEX_NAME,
@@ -114,11 +128,12 @@ async def stream_response(query: str, chat_history: list, request: Request):
         )
         retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
+        # Create document-answering chain using LangChain components
         # RAG chain
         qa_chain = create_stuff_documents_chain(llm, prompt)
         rag_chain = create_retrieval_chain(retriever, qa_chain)
 
-        # Wrap to extract context and answer
+        # Wrap retriever and RAG chain for combined context-answer output
         wrapped_chain = RunnableMap({
             "context": lambda x: retriever.ainvoke(x["input"]),
             "answer": rag_chain
@@ -130,6 +145,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
             "chat_history": chat_history
         }))
 
+        # Stream tokens back to client as they are generated
         # Start streaming tokens
         async for token in callback.aiter():
             if await request.is_disconnected():
@@ -152,6 +168,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
 
     yield "data: [DONE]\n\n"
 
+# Synchronous version of the chatbot for CLI or debugging
 # CLI-style sync version
 def chat_sync(query: str, chat_history: list):
     if is_unrelated_query(query):
@@ -182,11 +199,13 @@ def chat_sync(query: str, chat_history: list):
     return result.get("answer", "")
 
 
+# Getter for chat history
 # Expose history
 def get_history():
     return chat_history
 
 
+# Convert retrieved products to HTML card layout for UI rendering
 # Render product cards as HTML blocks
 def generate_product_cards_html(products: list[dict]) -> str:
     print("🔍 Raw input to card generator:", products)
