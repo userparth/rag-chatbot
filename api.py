@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from chatbot import stream_response, chat_sync, get_history
+from chatbot import stream_response
+from collections import defaultdict
 
 app = FastAPI()
 
@@ -13,20 +14,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+session_histories = defaultdict(list)
 
 @app.get("/")
 def home():
     return {"message": "RAG Chatbot API is live!"}
 
 @app.get("/chat")
-async def chat_stream(query: str, request: Request):
+async def chat_stream(query: str, session_id: str, request: Request):
     """
     Endpoint for streaming chat responses to frontend via SSE.
     """
-    chat_history = get_history()
+    history = session_histories[session_id]
+    stream = stream_response(query=query, chat_history=history, request=request)
+    # chat_history = get_history()
+    #
+    # async def streamer():
+    #     async for chunk in stream_response(query, chat_history, request):
+    #         yield chunk
 
-    async def streamer():
-        async for chunk in stream_response(query, chat_history, request):
-            yield chunk
-
-    return StreamingResponse(streamer(), media_type="text/event-stream")
+    return StreamingResponse(stream, media_type="text/event-stream")

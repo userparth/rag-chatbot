@@ -168,6 +168,11 @@
         </div>
     </div>
     <script>
+        let sessionId = localStorage.getItem("chatSessionId");
+        if (!sessionId) {
+            sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            localStorage.setItem("chatSessionId", sessionId);
+        }
         const button = document.getElementById("chatbot-button");
         const windowBox = document.getElementById("chatbot-window");
         const messages = document.getElementById("chatbot-messages");
@@ -214,7 +219,13 @@
 
             if (window.currentEventSource) window.currentEventSource.close();
 
-            const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
+            const url = new URL("http://127.0.0.1:8000/chat");
+            url.searchParams.set("query", userMessage);
+            url.searchParams.set("ts", Date.now());
+            url.searchParams.set("session_id", sessionId);
+            const eventSource = new EventSource(url.toString());
+
+            //const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";

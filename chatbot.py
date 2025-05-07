@@ -11,13 +11,13 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig, RunnableMap
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
 from fastapi import Request
-from pinecone import Pinecone
+from redis import Redis
 
 # Load environment variables from a .env file
 # Load environment variables
@@ -47,6 +47,10 @@ def is_unrelated_query(query: str) -> bool:
     query = query.lower()
     return any(topic in query for topic in UNRELATED_TOPICS)
 
+
+# Initialize Redis client
+
+redis_client = Redis(host="localhost", port=6379, decode_responses=True)
 
 # Prompt template defining chatbot behavior and tone
 # Prompt with rich instructions
@@ -97,6 +101,12 @@ chat_history = []
 # Stream GPT responses via SSE for real-time chat UI
 # Streamed version for FastAPI (SSE)
 async def stream_response(query: str, chat_history: list, request: Request):
+    session_id = request.query_params.get("session_id")
+    if not session_id:
+        yield f"data: {json.dumps({'token': 'Missing session ID'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
     if is_unrelated_query(query):
         redir = {
             "hi": "Main sirf Beatrrangi ke products mein madad karta hoon. Aap kis tarah ka jewelry dekh rahe ho?",
@@ -108,7 +118,17 @@ async def stream_response(query: str, chat_history: list, request: Request):
         yield "data: [DONE]\n\n"
         return
 
-    # Initialize ChatOpenAI with streaming and callback support
+    # Load chat history from Redis
+    redis_key = f"chat_history:{session_id}"
+    redis_messages = redis_client.lrange(redis_key, 0, -1)
+    chat_history = []
+    for msg in redis_messages:
+        data = json.loads(msg)
+        if data["type"] == "human":
+            chat_history.append(HumanMessage(content=data["content"]))
+        elif data["type"] == "ai":
+            chat_history.append(AIMessage(content=data["content"]))
+
     callback = AsyncIteratorCallbackHandler()
     llm = ChatOpenAI(
         model="gpt-4o",
@@ -118,8 +138,6 @@ async def stream_response(query: str, chat_history: list, request: Request):
     )
 
     try:
-        # Create retriever from Pinecone index using OpenAI embeddings
-        # Initialize retriever
         vectorstore = PineconeVectorStore.from_existing_index(
             index_name=PINECONE_INDEX_NAME,
             embedding=embeddings,
@@ -127,35 +145,33 @@ async def stream_response(query: str, chat_history: list, request: Request):
             text_key="text"
         )
         retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-
-        # Create document-answering chain using LangChain components
-        # RAG chain
         qa_chain = create_stuff_documents_chain(llm, prompt)
         rag_chain = create_retrieval_chain(retriever, qa_chain)
-
-        # Wrap retriever and RAG chain for combined context-answer output
         wrapped_chain = RunnableMap({
             "context": lambda x: retriever.ainvoke(x["input"]),
             "answer": rag_chain
         })
 
-        # Start chain call
         task = asyncio.create_task(wrapped_chain.ainvoke({
             "input": query,
             "chat_history": chat_history
         }))
 
-        # Stream tokens back to client as they are generated
-        # Start streaming tokens
+        full_response = ""
         async for token in callback.aiter():
             if await request.is_disconnected():
                 print("❌ Client disconnected — cancelling stream")
                 task.cancel()
                 return
+            full_response += token
             yield f"data: {json.dumps({'token': token})}\n\n"
 
-        # Now wait for full result (after tokens done)
         await task
+
+        # Save latest messages to Redis
+        redis_client.rpush(redis_key, json.dumps({"type": "human", "content": query}))
+        redis_client.rpush(redis_key, json.dumps({"type": "ai", "content": full_response}))
+        redis_client.ltrim(redis_key, -40, -1)
 
     except Exception as e:
         print("❌ Error in stream:", str(e))
@@ -167,6 +183,7 @@ async def stream_response(query: str, chat_history: list, request: Request):
             await llm.aclose()
 
     yield "data: [DONE]\n\n"
+
 
 # Synchronous version of the chatbot for CLI or debugging
 # CLI-style sync version
@@ -197,12 +214,6 @@ def chat_sync(query: str, chat_history: list):
     })
 
     return result.get("answer", "")
-
-
-# Getter for chat history
-# Expose history
-def get_history():
-    return chat_history
 
 
 # Convert retrieved products to HTML card layout for UI rendering
