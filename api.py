@@ -3,6 +3,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from chatbot import stream_response
 from collections import defaultdict
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 
 app = FastAPI()
 
@@ -16,9 +19,11 @@ app.add_middleware(
 )
 session_histories = defaultdict(list)
 
+
 @app.get("/")
 def home():
     return {"message": "RAG Chatbot API is live!"}
+
 
 @app.get("/chat")
 async def chat_stream(query: str, session_id: str, request: Request):
@@ -34,3 +39,13 @@ async def chat_stream(query: str, session_id: str, request: Request):
     #         yield chunk
 
     return StreamingResponse(stream, media_type="text/event-stream")
+
+
+# Serve static files (like chatbot_widget.html)
+app.mount("/static", StaticFiles(directory="."), name="static")
+
+
+# Direct route for chatbot_widget.html
+@app.get("/chatbot_widget.html", include_in_schema=False)
+async def serve_widget():
+    return FileResponse("chatbot_widget.html")
