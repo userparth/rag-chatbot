@@ -225,7 +225,7 @@
             url.searchParams.set("session_id", sessionId);
             const eventSource = new EventSource(url.toString());
 
-            //const eventSource = new EventSource(`http://127.0.0.1:8000/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
+            //const eventSource = new EventSource(`https://rag-chatbot-l1ln.onrender.com/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";
