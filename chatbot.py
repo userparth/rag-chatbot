@@ -173,29 +173,3 @@ def chat_sync(query: str, chat_history: list):
     })
 
     return result.get("answer", "")
-
-
-def generate_product_cards_html(products: list[dict]) -> str:
-    print("🔍 Raw input to card generator:", products)
-
-    if not products:
-        print("⚠️ No products passed for HTML rendering")
-        return ""
-
-    cards_html = ""
-    for p in products:
-        slug = p.get("slug")
-        if not slug or slug in shown_slugs:
-            continue
-
-        shown_slugs.add(slug)
-        title = p.get("title", "Jewelry")
-        desc = p.get("description", "")[:120]
-        cards_html += f"""
-        <div class=\"product-card\" onclick=\"window.open('https://beattrangi.com/products/{slug}', '_blank')\">
-            <h4>{title}</h4>
-            <p>{desc}</p>
-        </div>
-        """
-
-    return f"<div class='product-scroll-container'>{cards_html}</div>"
