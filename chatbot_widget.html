@@ -219,13 +219,13 @@
 
             if (window.currentEventSource) window.currentEventSource.close();
 
-            const url = new URL("https://rag-chatbot-l1ln.onrender.com/chat");
+            // https://rag-chatbot-l1ln.onrender.com
+            const url = new URL("http://127.0.0.1:8000/chat");
             url.searchParams.set("query", userMessage);
             url.searchParams.set("ts", Date.now());
             url.searchParams.set("session_id", sessionId);
             const eventSource = new EventSource(url.toString());
 
-            //const eventSource = new EventSource(`https://rag-chatbot-l1ln.onrender.com/chat?query=${encodeURIComponent(userMessage)}&ts=${Date.now()}`);
             window.currentEventSource = eventSource;
 
             let fullResponse = "";
