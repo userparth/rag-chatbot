@@ -117,40 +117,6 @@
             font-style: italic;
             color: #999;
         }
-
-        .product-scroll-container {
-            display: flex;
-            flex-direction: row;
-            overflow-x: auto;
-            gap: 12px;
-            padding: 12px;
-            scroll-snap-type: x mandatory;
-            margin-top: 12px;
-        }
-
-        .product-card {
-            flex: 0 0 auto;
-            width: 200px;
-            background: #fff;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            padding: 10px;
-            scroll-snap-align: start;
-        }
-
-        .product-card h4 {
-            font-size: 14px;
-            margin-bottom: 6px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .product-card a {
-            font-size: 12px;
-            display: inline-block;
-            margin-top: 4px;
-        }
     </style>
 </head>
 
@@ -194,17 +160,6 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        function createProductCard(title, url, description) {
-            const card = document.createElement("div");
-            card.className = "product-card";
-            card.innerHTML = `
-        <h4>${title}</h4>
-        <p style="font-size: 12px;">${description}</p>
-        <a href="${url}" target="_blank">View Product</a>
-      `;
-            return card;
-        }
-
         function sendMessage() {
             const userMessage = input.value.trim();
             if (!userMessage) return;
@@ -220,7 +175,8 @@
             if (window.currentEventSource) window.currentEventSource.close();
 
             // https://rag-chatbot-l1ln.onrender.com
-            const url = new URL("http://127.0.0.1:8000/chat");
+            const url = new URL("https://rag-chatbot-l1ln.onrender.com/chat");
+            //const url = new URL("http://127.0.0.1:8000/chat");
             url.searchParams.set("query", userMessage);
             url.searchParams.set("ts", Date.now());
             url.searchParams.set("session_id", sessionId);
@@ -234,43 +190,13 @@
                 if (event.data === "[DONE]") {
                     eventSource.close();
                     botMessage.remove();
-
-                    const renderedSlugs = new Set();
-                    const regex = /(👉\s*)?\[([^\]]+)\]\((https:\/\/beattrangi\.com\/products\/[-a-z0-9]+)\)(?::|\s*-)?\s*([^\n]*)/gi;
-
-                    const parts = fullResponse.split(regex);
-                    for (let i = 0; i < parts.length; i++) {
-                        if (i % 5 === 0) {
-                            appendMessage("bot", parts[i]);
-                        } else if ((i % 5 === 2) && parts[i + 1] && parts[i + 2]) {
-                            const title = parts[i + 0].trim();
-                            const url = parts[i + 1].trim();
-                            const desc = parts[i + 2].trim();
-                            if (!renderedSlugs.has(url)) {
-                                const container = document.createElement("div");
-                                container.className = "product-scroll-container";
-                                container.appendChild(createProductCard(title, url, desc));
-                                messages.appendChild(container);
-                                renderedSlugs.add(url);
-                            }
-                            i += 2;
-                        }
-                    }
+                    appendMessage("bot", fullResponse);
                     return;
                 }
                 try {
                     const parsed = JSON.parse(event.data);
-                    if (parsed.type === "product_cards_html") {
-                        botMessage.remove();
-                        const container = document.createElement("div");
-                        container.className = "product-scroll-container";
-                        container.innerHTML = parsed.html;
-                        messages.appendChild(container);
-                        messages.scrollTop = messages.scrollHeight;
-                    } else {
-                        fullResponse += parsed.token;
-                        botMessage.innerText = fullResponse;
-                    }
+                    fullResponse += parsed.token;
+                    botMessage.innerText = fullResponse;
                 } catch (e) {
                     console.error("Parsing error:", e);
                 }
