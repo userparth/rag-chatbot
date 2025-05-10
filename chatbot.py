@@ -18,6 +18,8 @@ from langchain.chains import create_retrieval_chain
 from langchain.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
 from fastapi import Request
 
+from chat_history import get_history, append_to_history, trim_history
+
 # Load environment variables from a .env file
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,7 +39,6 @@ UNRELATED_TOPICS = [
 shown_slugs = set()
 
 
-# Check if a query contains unrelated topics
 def is_unrelated_query(query: str) -> bool:
     query = query.lower()
     return any(topic in query for topic in UNRELATED_TOPICS)
@@ -95,6 +96,9 @@ async def stream_response(query: str, chat_history: list, request: Request):
         yield "data: [DONE]\n\n"
         return
 
+    chat_history = get_history(session_id)
+    append_to_history(session_id, "human", query)
+
     callback = AsyncIteratorCallbackHandler()
     llm = ChatOpenAI(
         model="gpt-4o",
@@ -133,6 +137,8 @@ async def stream_response(query: str, chat_history: list, request: Request):
             yield f"data: {json.dumps({'token': token})}\n\n"
 
         await task
+        append_to_history(session_id, "ai", full_response)
+        trim_history(session_id)
 
     except Exception as e:
         print("❌ Error in stream:", str(e))
