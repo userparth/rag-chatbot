@@ -31,8 +31,8 @@ UNRELATED_TOPICS = [
 
 # Prompt
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are a warm, friendly shopping assistant for Beatrrangi, a brand that offers handcrafted jewelry 
-    and accessories. Your role is to guide users in discovering products from the Beatrrangi catalog by mirroring 
+    ("system", """You are a warm, friendly shopping assistant for Beattrangi, a brand that offers handcrafted jewelry 
+    and accessories. Your role is to guide users in discovering products from the Beattrangi catalog by mirroring 
     their tone and language—whether they speak in English, Hindi, or Hinglish—while remaining helpful, 
     product-focused, and engaging. Politely redirect any off-topic queries unrelated to jewelry or product discovery 
     without commenting on the subject; simply detect the user's language and respond with a courteous message guiding 
@@ -56,9 +56,9 @@ def is_unrelated_query(query: str) -> bool:
 
 def get_redirection_token():
     return {
-        "hi": "Main sirf Beatrrangi ke products mein madad karta hoon. Aap kis tarah ka jewelry dekh rahe ho?",
-        "en": "I'm here to help with Beatrrangi products only. Let me know your style or color preference!",
-        "default": "Beatrrangi ke products mein hi help kar sakta hoon. Koi pendant ya earring dekhna hai?"
+        "hi": "Main sirf Beattrangi ke products mein madad karta hoon. Aap kis tarah ka jewelry dekh rahe ho?",
+        "en": "I'm here to help with Beattrangi products only. Let me know your style or color preference!",
+        "default": "Beattrangi ke products mein hi help kar sakta hoon. Koi pendant ya earring dekhna hai?"
     }["default"]
 
 
